@@ -57,8 +57,10 @@ class LearningPage(QWidget):
         self.tree.setStyleSheet('QTreeWidget { background: #13151f; border: 1px solid #252938; border-radius: 10px; } QTreeWidget::item { padding: 10px 4px; } QTreeWidget::item:selected { background: #342c55; }')
         body.addWidget(self.tree)
         right = QVBoxLayout()
+        right.setSpacing(8)
         body.addLayout(right, 1)
         self.reader = QTextBrowser()
+        self.reader.setMinimumHeight(180)
         self.reader.setOpenExternalLinks(False)
         self.reader.setStyleSheet('QTextBrowser { background: #13151f; border: 1px solid #252938; border-radius: 10px; padding: 14px; }')
         right.addWidget(self.reader, 1)
@@ -103,6 +105,7 @@ class LearningPage(QWidget):
                 groups[lesson.module] = group
             item = QTreeWidgetItem(groups[lesson.module])
             item.setData(0, Qt.ItemDataRole.UserRole, index)
+            item.setToolTip(0, lesson.title)
             self.items.append(item)
         self.tree.expandAll()
         self.tree.currentItemChanged.connect(self.changed)
