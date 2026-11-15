@@ -34,14 +34,42 @@ def test_complete_demo_gui_persistence_and_mixer(tmp_path):
     assert window.songs.count() == 1
     window.show()
     app.processEvents()
+    assert window.pages.currentIndex() == 1
+    assert len(window.notes) == 8
+    assert [round(note['midi']) for note in window.notes] == [60, 62, 64, 67, 65, 64, 62, 60]
+
+    # Manual sync: tapping stamps the focused line and moves on to the next one.
     window.audio.seek(5)
-    window.line_table.selectRow(0)
+    window.set_sync_mode(True)
+    window.line_clicked(0)
     window.stamp_line()
     assert json.loads((folder / 'project.json').read_text())['lines'][0]['time'] == 5
-    window.line_table.item(0, 0).setText('-2')
-    assert window.project['lines'][0]['time'] == 5
+    assert window.sync_index == 1
+    window.set_sync_mode(False)
     window.tick()
-    assert window.current_lyric.text().startswith('Ла-а-а')
+    assert window.lyrics_view.active == 0  # the line stamped at 5.0 s is the latest one
+    # Clicking a lyric line seeks slightly before it.
+    window.line_clicked(3)
+    assert abs(window.audio.seconds - (window.project['lines'][3]['time'] - .3)) < .01
+
+    # Singing the right note an octave lower is a hit in any-octave mode and lights the note up.
+    window.octaves.setChecked(True)
+    window.delay.setValue(0)
+    window.audio.seek(2.5)
+    window.audio.input = object()
+    window.audio.input_rate = 44100
+    tone = .2 * np.sin(2 * np.pi * 130.8128 * np.arange(3087) / 44100)
+    window.audio.microphone_samples = lambda: tone
+    window.audio.playing = True
+    for _ in range(4):
+        window.last_tick -= .016
+        window.tick()
+    assert window.feedback.text() == 'В ноту ✓'
+    assert window.timeline.hits[0]
+    assert window.score_hit > 0
+    window.audio.microphone_samples = lambda: tone * 0
+    window.audio.playing = False
+    window.audio.input = None
     window.grab().save(str(tmp_path / 'studio.png'))
 
     engine = window.audio
@@ -110,3 +138,39 @@ def test_own_separator_complete_file_workflow_without_model_imports(tmp_path, mo
     reference = json.loads((folder / 'reference.json').read_text())
     notes = [p for t, p in zip(reference['times'], reference['midi']) if 2.3 < t < 3 and p is not None]
     assert len(notes) > 20
+
+
+def test_neural_engine_falls_back_to_builtin_separator_when_model_is_unavailable(tmp_path, monkeypatch):
+    import soundfile as sf
+    from test_separation import known_mix
+    from vocalstudio import neural
+
+    def offline(models, progress=None):
+        raise OSError('offline')
+    monkeypatch.setattr(neural, 'ensure_model', offline)
+    voice, backing = known_mix()
+    source = tmp_path / 'song.wav'
+    sf.write(source, voice + backing, 22050, subtype='FLOAT')
+    folder = create_project(tmp_path / 'library', source, 'Первая строка\nВторая строка', 'Моя песня')
+    prepare(folder, 'separate', engine='neural', models=tmp_path / 'models')
+    project = json.loads((folder / 'project.json').read_text(encoding='utf-8'))
+    assert project['title'] == 'Моя песня'
+    assert project['separator'] == 'repetition-centre-v1'
+    # Plain lyrics are placed on the timeline automatically, in order.
+    times = [line['time'] for line in project['lines']]
+    assert all(line['auto'] for line in project['lines'])
+    assert 0 <= times[0] < times[1] < 12
+
+
+def test_lyrics_dialog_fills_text_from_search_result(monkeypatch):
+    from vocalstudio import app as app_module
+    found = [{'title': 'Song', 'artist': 'Band', 'duration': 200., 'synced': True, 'lyrics': '[00:01.00]Hello'}]
+    monkeypatch.setattr(app_module.lyrics_online, 'search', lambda query: found)
+    dialog = app_module.LyricsDialog(None, '', 'Band Song')
+    dialog.search()
+    dialog.worker.wait()
+    _APP.processEvents()
+    assert dialog.list.count() == 1
+    dialog.pick(dialog.list.item(0))
+    assert dialog.text() == '[00:01.00]Hello'
+    dialog.reject()
