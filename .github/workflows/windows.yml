@@ -1,0 +1,66 @@
+name: Windows installer
+on:
+  push:
+    branches: [main, feat/windows-learning]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: .venv/Scripts/python -m pytest -q
+      - name: Build executable and installer
+        shell: pwsh
+        run: ./packaging/build-windows.ps1
+      - name: Verify installation and shortcuts
+        shell: pwsh
+        run: |
+          $Installer = (Resolve-Path dist/VocalStudio-Setup-*-windows-x64.exe).Path
+          $Target = Join-Path $env:RUNNER_TEMP 'Vocal Studio Installed'
+          $Setup = Start-Process $Installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=desktopicon', "/DIR=`"$Target`"") -Wait -PassThru
+          if ($Setup.ExitCode -ne 0) { throw "Installer failed: $($Setup.ExitCode)" }
+          $Exe = Join-Path $Target 'VocalStudio.exe'
+          if (!(Test-Path $Exe)) { throw 'Installed EXE missing' }
+          $Shell = New-Object -ComObject WScript.Shell
+          foreach ($Folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
+            $Link = Join-Path $Folder 'Vocal Studio.lnk'
+            if (!(Test-Path $Link)) { throw "Shortcut missing: $Link" }
+            if ($Shell.CreateShortcut($Link).TargetPath -ne $Exe) { throw 'Wrong shortcut target' }
+          }
+          $Report = Join-Path $env:RUNNER_TEMP 'installed-smoke.json'
+          $Check = Start-Process $Exe -ArgumentList @('--self-test', "`"$Report`"") -PassThru
+          if (!$Check.WaitForExit(120000)) { $Check.Kill(); throw 'Installed app timed out' }
+          if ($Check.ExitCode -ne 0 -or !(Get-Content $Report -Raw | ConvertFrom-Json).ok) { throw 'Installed app smoke check failed' }
+          $Remove = Start-Process (Join-Path $Target 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($Remove.ExitCode -ne 0) { throw 'Uninstall failed' }
+          if (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Vocal Studio.lnk')) { throw 'Desktop shortcut was not removed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VocalStudio-windows-x64
+          if-no-files-found: error
+          path: |
+            dist/VocalStudio-Setup-*-windows-x64.exe
+            dist/VocalStudio-*-windows-x64.zip
+            dist/smoke-test.json

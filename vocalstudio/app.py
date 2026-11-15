@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from . import lyrics_online, neural
 from .audio import AudioEngine
+from .learning import LearningPage
 from .core import (
     active_line, atomic_json, auto_align, cents_error, create_project, detect_pitch,
     note_at, note_name, parse_lyrics, realign_following,
@@ -33,7 +34,7 @@ from .widgets import (
 AUDIO_FILTER = 'Аудио (*.mp3 *.wav *.flac *.m4a *.ogg *.aac *.opus *.wma);;Все файлы (*)'
 AUDIO_SUFFIXES = {'.mp3', '.wav', '.flac', '.m4a', '.ogg', '.aac', '.opus', '.wma', '.aiff', '.aif', '.mp4', '.webm'}
 TOLERANCE_CENTS = 60
-SETUP, STUDIO, BUSY = 0, 1, 2
+SETUP, STUDIO, BUSY, LEARNING = 0, 1, 2, 3
 
 STYLE = '''
 * { font-family: "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", "Noto Sans", sans-serif; font-size: 14px; color: #f3f4f8; outline: none; }
@@ -273,6 +274,9 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.build_setup())
         self.pages.addWidget(self.build_studio())
         self.pages.addWidget(self.build_busy())
+        self.learning = LearningPage(self.settings)
+        self.learning.practice_requested.connect(self.make_demo)
+        self.pages.addWidget(self.learning)
         self.refresh_library()
 
         QShortcut(QKeySequence(Qt.Key.Key_Space), self, activated=self.space_pressed)
@@ -301,6 +305,8 @@ class MainWindow(QMainWindow):
         side.addSpacing(16)
         self.new_button = button('Новая песня', self.new_song, 'primary', 'plus')
         side.addWidget(self.new_button)
+        self.learning_button = button('Обучение', self.show_learning, glyph='note')
+        side.addWidget(self.learning_button)
         side.addSpacing(16)
         side.addWidget(label('МОИ ПЕСНИ', 'caps'))
         self.songs = QListWidget()
@@ -595,6 +601,15 @@ class MainWindow(QMainWindow):
             shutil.rmtree(folder, ignore_errors=True)
         self.refresh_library()
 
+    def show_learning(self):
+        if self.process:
+            return
+        self.audio.pause()
+        if self.audio.input is not None:
+            self.toggle_mic()
+        self.songs.clearSelection()
+        self.pages.setCurrentIndex(LEARNING)
+
     def new_song(self):
         self.audio.pause()
         self.songs.clearSelection()
@@ -684,7 +699,7 @@ class MainWindow(QMainWindow):
         self.process.readyReadStandardOutput.connect(self.read_progress)
         self.process.finished.connect(self.job_finished)
         self.process.errorOccurred.connect(self.job_error)
-        for item in (self.new_button, self.demo_button, self.songs):
+        for item in (self.new_button, self.demo_button, self.songs, self.learning_button):
             item.setEnabled(False)
         self.progress.setRange(0, 0)
         self.busy_percent.setText('')
@@ -749,7 +764,7 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(SETUP)
 
     def finish_job_ui(self):
-        for item in (self.new_button, self.demo_button, self.songs):
+        for item in (self.new_button, self.demo_button, self.songs, self.learning_button):
             item.setEnabled(True)
         self.update_engine_hint()
 
@@ -1019,11 +1034,15 @@ class MainWindow(QMainWindow):
                 return
             self.cancel_job()
         self.timer.stop()
+        self.learning.stop_example()
         self.audio.close()
         event.accept()
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--self-test':
+        from .selftest import run
+        sys.exit(run(Path(sys.argv[2])))
     if len(sys.argv) > 1 and sys.argv[1] == '--worker':
         from .worker import main as worker_main
         worker_main(sys.argv[2:])
@@ -1031,6 +1050,8 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('VocalStudio')
     app.setOrganizationName('VocalStudio')
+    from .branding import app_icon
+    app.setWindowIcon(app_icon())
     app.setStyle('Fusion')
     app.setStyleSheet(STYLE)
     window = MainWindow()
