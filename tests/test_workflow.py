@@ -18,11 +18,11 @@ _APP = QApplication.instance() or QApplication([])
 
 def test_complete_demo_gui_persistence_and_mixer(tmp_path):
     folder = create_project(tmp_path, Path('demo.wav'), '')
-    process = subprocess.run([sys.executable, '-m', 'vocalstudio.worker', str(folder), '--mode', 'demo'], capture_output=True, text=True)
+    process = subprocess.run([sys.executable, '-m', 'vocalstudio.worker', str(folder), '--mode', 'demo'], capture_output=True, text=True, encoding='utf-8')
     assert process.returncode == 0, process.stdout + process.stderr
-    metadata = json.loads((folder / 'project.json').read_text())
+    metadata = json.loads((folder / 'project.json').read_text(encoding='utf-8'))
     assert metadata['state'] == 'ready'
-    reference = json.loads((folder / 'reference.json').read_text())
+    reference = json.loads((folder / 'reference.json').read_text(encoding='utf-8'))
     pitches = [p for t, p in zip(reference['times'], reference['midi']) if 2.2 < t < 3.5 and p is not None]
     assert len(pitches) > 40
     assert abs(np.median(pitches) - 60) < .15
@@ -43,7 +43,7 @@ def test_complete_demo_gui_persistence_and_mixer(tmp_path):
     window.set_sync_mode(True)
     window.line_clicked(0)
     window.stamp_line()
-    assert json.loads((folder / 'project.json').read_text())['lines'][0]['time'] == 5
+    assert json.loads((folder / 'project.json').read_text(encoding='utf-8'))['lines'][0]['time'] == 5
     assert window.sync_index == 1
     window.set_sync_mode(False)
     window.tick()
@@ -127,7 +127,7 @@ def test_own_separator_complete_file_workflow_without_model_imports(tmp_path, mo
     sf.write(source, voice + backing, 22050, subtype='FLOAT')
     folder = create_project(tmp_path / 'library', source, '[00:02.00]Ла-а-а')
     prepare(folder, 'separate')
-    project = json.loads((folder / 'project.json').read_text())
+    project = json.loads((folder / 'project.json').read_text(encoding='utf-8'))
     assert project['state'] == 'ready'
     assert project['separator'] == 'repetition-centre-v1'
     assert project['lines'][0]['time'] == 2
@@ -135,7 +135,7 @@ def test_own_separator_complete_file_workflow_without_model_imports(tmp_path, mo
     engine = AudioEngine()
     engine.load(folder)
     assert engine.duration == 12
-    reference = json.loads((folder / 'reference.json').read_text())
+    reference = json.loads((folder / 'reference.json').read_text(encoding='utf-8'))
     notes = [p for t, p in zip(reference['times'], reference['midi']) if 2.3 < t < 3 and p is not None]
     assert len(notes) > 20
 
