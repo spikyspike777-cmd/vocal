@@ -1,17 +1,18 @@
 @echo off
+chcp 65001 >nul
 cd /d "%~dp0"
-py -3.12 -m venv .venv
+py -3 -m venv .venv
 if errorlevel 1 goto fail
 .venv\Scripts\python.exe -m pip install --upgrade pip
 if errorlevel 1 goto fail
 .venv\Scripts\python.exe -m pip install -e .
 if errorlevel 1 goto fail
-where ffmpeg >nul 2>nul
-if errorlevel 1 echo Install FFmpeg: winget install --id Gyan.FFmpeg -e
- echo Setup complete. Start the app with start.bat.
+echo.
+echo Setup complete. Start the app with start.bat.
 pause
 exit /b 0
 :fail
- echo Setup failed. See the error above. Python 3.12 is required.
+echo.
+echo Setup failed. See the error above. Python 3.10-3.13 (64-bit) from python.org is required.
 pause
 exit /b 1

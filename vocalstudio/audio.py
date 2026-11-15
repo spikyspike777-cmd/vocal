@@ -25,6 +25,7 @@ class AudioEngine:
         self.input_rate = 44100
         self.latency = 0.
         self.device_error = ''
+        self.level = 0.
 
     def load(self, folder: Path):
         self.pause()
@@ -90,6 +91,7 @@ class AudioEngine:
         self.input_rate = int(info['default_samplerate'])
         def capture(indata, frames, time_info, status):
             self.frames.append(indata[:, 0].copy())
+            self.level = float(np.sqrt(np.mean(indata[:, 0] ** 2)))
         self.input = sd.InputStream(device=device, samplerate=self.input_rate, channels=1,
                                     dtype='float32', blocksize=512, callback=capture)
         self.input.start()
@@ -100,6 +102,7 @@ class AudioEngine:
             self.input.close()
             self.input = None
         self.frames.clear()
+        self.level = 0.
 
     def microphone_samples(self):
         # Snapshot the deque: PortAudio writes on a different thread.
